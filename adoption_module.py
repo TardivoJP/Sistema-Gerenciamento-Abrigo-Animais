@@ -1,423 +1,411 @@
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
-    QHBoxLayout, QLabel, QComboBox, QDateEdit, QMessageBox, QStackedLayout, QFormLayout, QToolButton
-)
+from base_list_widget import BaseListWidget
+from PyQt6.QtWidgets import QLineEdit, QDateEdit, QComboBox, QMessageBox, QPushButton, QCompleter
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
-from database import create_connection
 from datetime import datetime
+from database import create_connection
 
-class AdoptionListWidget(QWidget):
+class AdoptionListWidget(BaseListWidget):
     def __init__(self):
+        self.column_mapping_local = {
+            0: "adoptions.id"
+        }
         super().__init__()
-        self.current_page = 0
-        self.page_size = 25
-        self.initUI()
+        self.order_by_column = "adoptions.id"  
 
-    def initUI(self):
-        # Layout principal com pilha para alternar entre tabela e formulário
-        self.layout = QVBoxLayout()
-        self.stacked_layout = QStackedLayout()
+        self.adopter_dict = {}
+        self.animal_dict = {}
 
-        # Tela da tabela de adoções
-        self.table_widget = QWidget()
-        self.initTableUI()
-        self.stacked_layout.addWidget(self.table_widget)
+    def get_title(self):
+        return "Lista de Adoções"
 
-        # Tela do formulário de nova adoção
-        self.form_widget = QWidget()
-        self.initFormUI()
-        self.stacked_layout.addWidget(self.form_widget)
+    def get_new_button_text(self):
+        return "Nova Adoção"
 
-        self.layout.addLayout(self.stacked_layout)
-        self.setLayout(self.layout)
+    def get_table_headers(self):
+        return ["ID", "Adotante", "Animal", "Data", "Status", "", ""]
 
-        # Exibir a tabela inicialmente
-        self.stacked_layout.setCurrentWidget(self.table_widget)
+    def init_search_fields(self):
+        self.search_field_combo.addItem("ID", "adoptions.id")
+        self.search_field_combo.addItem("Adotante", "adopters.name")
+        self.search_field_combo.addItem("Animal", "animals.name")
+        self.search_field_combo.addItem("Status", "adoptions.status")
+        self.search_field_combo.addItem("Data", "adoptions.date")
 
-    def initTableUI(self):
-        layout = QVBoxLayout()
+    def get_column_mapping(self):
+        return {
+            0: "adoptions.id",
+            1: "adopters.name",
+            2: "animals.name",
+            3: "adoptions.date",
+            4: "adoptions.status"
+        }
 
-        # Título
-        title = QLabel("Lista de Adoções")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+    def build_record_query(self, count_only=False):
+        base = "SELECT "
+        if count_only:
+            base += "COUNT(*)"
+        else:
+            base += "adoptions.id, adopters.name, animals.name, adoptions.date, adoptions.status, animals.id"
+        base += " FROM adoptions"
+        base += " JOIN adopters ON adoptions.adopter_id = adopters.id"
+        base += " JOIN animals ON adoptions.animal_id = animals.id"
 
-        # Tabela
-        self.table = QTableWidget()
-        self.table.setColumnCount(7)
-        self.table.setHorizontalHeaderLabels(["ID", "Adotante", "Animal", "Data", "Status", "", ""])
-        layout.addWidget(self.table)
+        conditions = []
+        if self.filter_field and self.filter_value:
+            field = self.filter_field
+            value = self.filter_value
+            if field == "adoptions.id":
+                if value.isdigit():
+                    conditions.append("adoptions.id = {}".format(int(value)))
+                else:
+                    conditions.append("CAST(adoptions.id AS TEXT) LIKE '%{}%'".format(value))
+            elif field == "adoptions.status":
+                conditions.append("adoptions.status LIKE '%{}%'".format(value))
+            elif field == "adoptions.date":
+                conditions.append("adoptions.date LIKE '%{}%'".format(value))
+            elif field == "adopters.name":
+                conditions.append("adopters.name LIKE '%{}%'".format(value))
+            elif field == "animals.name":
+                conditions.append("animals.name LIKE '%{}%'".format(value))
 
-        # Controles de Paginação
-        pagination_layout = QHBoxLayout()
-        self.prev_button = QPushButton("Anterior")
-        self.next_button = QPushButton("Próximo")
-        self.prev_button.clicked.connect(self.prev_page)
-        self.next_button.clicked.connect(self.next_page)
-        pagination_layout.addWidget(self.prev_button)
-        pagination_layout.addWidget(self.next_button)
-        layout.addLayout(pagination_layout)
+        if conditions:
+            base += " WHERE " + " AND ".join(conditions)
 
-        # Botão Nova Adoção
-        self.new_button = QPushButton("Nova Adoção")
-        self.new_button.clicked.connect(self.show_form)
-        layout.addWidget(self.new_button)
+        if not count_only:
+            if self.order_by_column is None:
+                self.order_by_column = "adoptions.id"
+            base += f" ORDER BY {self.order_by_column} {self.order_direction}"
+            base += f" LIMIT {self.page_size} OFFSET {self.current_page * self.page_size}"
 
-        self.table_widget.setLayout(layout)
-        self.load_data()
+        return base
 
-    def initFormUI(self):
-        layout = QVBoxLayout()
+    def add_actions_to_row(self, row_idx, row_data):
+        adoption_id = row_data[0]
+        animal_id = row_data[5]
 
-        form_layout = QFormLayout()
+        edit_button = QPushButton("Editar")
+        edit_button.clicked.connect(lambda checked, aid=adoption_id: self.edit_record(aid))
+        self.table.setCellWidget(row_idx, 5, edit_button)
 
-        # Seleção do Adotante
-        self.adopter_combo = QComboBox()
-        self.load_adopters()
-        form_layout.addRow("Selecionar Adotante:", self.adopter_combo)
+        delete_button = QPushButton("Deletar")
+        delete_button.clicked.connect(lambda checked, aid=adoption_id, anid=animal_id: self.delete_action(aid, anid))
+        self.table.setCellWidget(row_idx, 6, delete_button)
 
-        # Seleção do Animal
-        self.animal_combo = QComboBox()
-        self.load_animals()
-        form_layout.addRow("Selecionar Animal:", self.animal_combo)
-
-        # Data da Adoção
-        self.date_input = QDateEdit()
-        self.date_input.setDate(datetime.now())
-        form_layout.addRow("Data da Adoção:", self.date_input)
-
-        # Status
-        self.status_input = QComboBox()
-        self.status_input.addItems(["Pendente", "Concluída", "Cancelada"])
-        form_layout.addRow("Status:", self.status_input)
-
-        layout.addLayout(form_layout)
-
-        # Botões de Ação
-        button_layout = QHBoxLayout()
-        self.save_button = QPushButton("Salvar")
-        self.save_button.clicked.connect(self.register_adoption)
-        self.cancel_button = QPushButton("Cancelar")
-        self.cancel_button.clicked.connect(self.cancel_form)
-        button_layout.addWidget(self.save_button)
-        button_layout.addWidget(self.cancel_button)
-
-        layout.addLayout(button_layout)
-
-        self.form_widget.setLayout(layout)
-
-    def load_data(self):
-        conn = create_connection()
-        cursor = conn.cursor()
-        offset = self.current_page * self.page_size
-        cursor.execute('''
-            SELECT adoptions.id, adopters.name, animals.name, adoptions.date, adoptions.status, animals.id
-            FROM adoptions
-            JOIN adopters ON adoptions.adopter_id = adopters.id
-            JOIN animals ON adoptions.animal_id = animals.id
-            LIMIT ? OFFSET ?
-        ''', (self.page_size, offset))
-        records = cursor.fetchall()
-        self.table.setRowCount(len(records))
-
-        for row_idx, row_data in enumerate(records):
-            for col_idx, col_data in enumerate(row_data[:-1]):  # Exclui o último campo (animal_id)
-                self.table.setItem(row_idx, col_idx, QTableWidgetItem(str(col_data)))
-
-            adoption_id = row_data[0]
-            animal_id = row_data[5]
-
-            # Botão de editar
-            edit_button = QPushButton("Editar")
-            edit_button.clicked.connect(lambda checked, aid=adoption_id: self.edit_adoption(aid))
-            self.table.setCellWidget(row_idx, 5, edit_button)
-
-            # Botão de deletar
-            delete_button = QPushButton("Deletar")
-            delete_button.clicked.connect(lambda checked, aid=adoption_id, anid=animal_id: self.delete_adoption(aid, anid))
-            self.table.setCellWidget(row_idx, 6, delete_button)
-
-        conn.close()
-
-    def next_page(self):
-        self.current_page += 1
-        self.load_data()
-
-    def prev_page(self):
-        if self.current_page > 0:
-            self.current_page -= 1
-            self.load_data()
-
-    def show_form(self):
-        self.adopter_combo.clear()
-        self.animal_combo.clear()
-        self.load_adopters()
-        self.load_animals()
-
-        self.adopter_combo.insertItem(0, "", None)
-        self.animal_combo.insertItem(0, "", None)
-        self.adopter_combo.setCurrentIndex(0)
-        self.animal_combo.setCurrentIndex(0)
-
-        self.date_input.setDate(datetime.now())
-        self.status_input.setCurrentIndex(0)
-
-        self.stacked_layout.setCurrentWidget(self.form_widget)
-
-
-    def cancel_form(self):
-        # Voltar para a tela da tabela
-        self.stacked_layout.setCurrentWidget(self.table_widget)
-
-    def load_adopters(self):
-        self.adopter_combo.clear()
-        conn = create_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, name FROM adopters')
-        adopters = cursor.fetchall()
-        for adopter in adopters:
-            self.adopter_combo.addItem(f"{adopter[1]} (ID: {adopter[0]})", adopter[0])
-        conn.close()
-
-    def load_animals(self):
-        self.animal_combo.clear()
-        conn = create_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, name FROM animals')
-        animals = cursor.fetchall()
-        for animal in animals:
-            self.animal_combo.addItem(f"{animal[1]} (ID: {animal[0]})", animal[0])
-        conn.close()
-
-    def register_adoption(self):
-        adopter_id = self.adopter_combo.currentData()
-        animal_id = self.animal_combo.currentData()
-        date = self.date_input.date().toString("yyyy-MM-dd")
-        status = self.status_input.currentText()
-
-        # Validação dos dados
-        if adopter_id is None:
-            QMessageBox.warning(self, "Erro", "Por favor, selecione um adotante.")
-            return
-        if animal_id is None:
-            QMessageBox.warning(self, "Erro", "Por favor, selecione um animal.")
-            return
-
-        conn = create_connection()
-        cursor = conn.cursor()
-
-        # Verificar se o animal já está adotado
-        cursor.execute('SELECT status FROM animals WHERE id = ?', (animal_id,))
-        animal_status = cursor.fetchone()[0]
-        if animal_status == 'Adotado':
-            QMessageBox.warning(self, "Erro", "Este animal já foi adotado.")
-            conn.close()
-            return
-
-        # Inserir a adoção
-        cursor.execute('''
-            INSERT INTO adoptions (adopter_id, animal_id, date, status)
-            VALUES (?, ?, ?, ?)
-        ''', (adopter_id, animal_id, date, status))
-
-        # Atualizar o status do animal para 'Adotado'
-        cursor.execute('''
-            UPDATE animals SET status = 'Adotado' WHERE id = ?
-        ''', (animal_id,))
-
-        conn.commit()
-        conn.close()
-
-        # Voltar para a tela da tabela e atualizar os dados
-        self.stacked_layout.setCurrentWidget(self.table_widget)
-        self.load_data()
-     
-    def delete_adoption(self, adoption_id, animal_id):
+    def delete_action(self, adoption_id, animal_id):
         reply = QMessageBox.question(
             self, 'Confirmação', 'Tem certeza que deseja deletar esta adoção?',
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            conn = create_connection()
-            cursor = conn.cursor()
-
-            # Deletar a adoção
-            cursor.execute('DELETE FROM adoptions WHERE id = ?', (adoption_id,))
-
-            # Atualizar o status do animal para 'Disponível'
-            cursor.execute("UPDATE animals SET status = 'Disponível' WHERE id = ?", (animal_id,))
-
-            conn.commit()
-            conn.close()
+            self.delete_record((adoption_id, animal_id))
             self.load_data()
 
+    def initFormFields(self, form_layout):
+        self.adopter_input = QLineEdit()
+        self.animal_input = QLineEdit()
 
-    def edit_adoption(self, adoption_id):
-        # Carregar dados da adoção
+        # Campos adicionais de info
+        self.adopter_info = QLineEdit()
+        self.adopter_info.setReadOnly(True)
+        self.adopter_info.setStyleSheet("color: grey;")
+
+        self.animal_info = QLineEdit()
+        self.animal_info.setReadOnly(True)
+        self.animal_info.setStyleSheet("color: grey;")
+
+        form_layout.addRow("Selecionar Adotante:", self.adopter_input)
+        form_layout.addRow("Info Adotante:", self.adopter_info)
+        form_layout.addRow("Selecionar Animal:", self.animal_input)
+        form_layout.addRow("Info Animal:", self.animal_info)
+
+        self.date_input = QDateEdit()
+        self.date_input.setDate(datetime.now())
+        form_layout.addRow("Data da Adoção:", self.date_input)
+
+        self.status_input = QComboBox()
+        self.status_input.addItems(["Pendente", "Concluída", "Cancelada"])
+        form_layout.addRow("Status:", self.status_input)
+
+        # Sinais para atualizar infos ao terminar de editar
+        self.adopter_input.editingFinished.connect(self.update_adopter_info)
+        self.animal_input.editingFinished.connect(self.update_animal_info)
+
+    def initEditFormFields(self, form_layout):
+        self.edit_adopter_input = QLineEdit()
+        self.edit_animal_input = QLineEdit()
+
+        self.edit_adopter_info = QLineEdit()
+        self.edit_adopter_info.setReadOnly(True)
+        self.edit_adopter_info.setStyleSheet("color: grey;")
+
+        self.edit_animal_info = QLineEdit()
+        self.edit_animal_info.setReadOnly(True)
+        self.edit_animal_info.setStyleSheet("color: grey;")
+
+        form_layout.addRow("Selecionar Adotante:", self.edit_adopter_input)
+        form_layout.addRow("Info Adotante:", self.edit_adopter_info)
+        form_layout.addRow("Selecionar Animal:", self.edit_animal_input)
+        form_layout.addRow("Info Animal:", self.edit_animal_info)
+
+        self.edit_date_input = QDateEdit()
+        self.edit_date_input.setDate(datetime.now())
+        form_layout.addRow("Data da Adoção:", self.edit_date_input)
+
+        self.edit_status_input = QComboBox()
+        self.edit_status_input.addItems(["Pendente", "Concluída", "Cancelada"])
+        form_layout.addRow("Status:", self.edit_status_input)
+
+        self.edit_adopter_input.editingFinished.connect(self.update_adopter_info_edit)
+        self.edit_animal_input.editingFinished.connect(self.update_animal_info_edit)
+
+    def load_adopters_list(self):
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name, address, phone FROM adopters')
+        adopters = cursor.fetchall()
+        conn.close()
+        self.adopter_dict.clear()
+        items = []
+        # Agora armazenamos não só o ID, mas também infos extras
+        # { "Pedro (ID:10)": (10, "Endereço...", "Telefone...") }
+        self.adopter_full_info = {}
+        for (aid, name, address, phone) in adopters:
+            key = f"{name} (ID:{aid})"
+            self.adopter_dict[key] = aid
+            self.adopter_full_info[key] = (aid, address, phone)
+            items.append(key)
+        return items
+
+    def load_animals_list(self):
+        conn = create_connection()
+        cursor = conn.cursor()
+        # Excluir animais adotados
+        cursor.execute('SELECT id, name, type, breed, status FROM animals WHERE status != "Adotado"')
+        animals = cursor.fetchall()
+        conn.close()
+        self.animal_dict.clear()
+        self.animal_full_info = {}
+        items = []
+        for (anid, name, atype, breed, status) in animals:
+            key = f"{name} (ID:{anid})"
+            self.animal_dict[key] = anid
+            # Guardar tipo e raça
+            self.animal_full_info[key] = (anid, atype, breed, status)
+            items.append(key)
+        return items
+
+    def setup_completer(self, line_edit, items):
+        completer = QCompleter(items, self)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        line_edit.setCompleter(completer)
+
+    def clear_form(self):
+        adopters_list = self.load_adopters_list()
+        animals_list = self.load_animals_list()
+
+        self.adopter_input.clear()
+        self.animal_input.clear()
+        self.adopter_info.clear()
+        self.animal_info.clear()
+
+        self.setup_completer(self.adopter_input, adopters_list)
+        self.setup_completer(self.animal_input, animals_list)
+
+        self.date_input.setDate(datetime.now())
+        self.status_input.setCurrentIndex(0)
+
+    def clear_edit_form(self):
+        adopters_list = self.load_adopters_list()
+        animals_list = self.load_animals_list()
+
+        self.edit_adopter_input.clear()
+        self.edit_animal_input.clear()
+        self.edit_adopter_info.clear()
+        self.edit_animal_info.clear()
+
+        self.setup_completer(self.edit_adopter_input, adopters_list)
+        self.setup_completer(self.edit_animal_input, animals_list)
+
+        self.edit_date_input.setDate(datetime.now())
+        self.edit_status_input.setCurrentIndex(0)
+
+    def collect_form_data(self):
+        data = {
+            "adopter_key": self.adopter_input.text().strip(),
+            "animal_key": self.animal_input.text().strip(),
+            "date": self.date_input.date().toString("yyyy-MM-dd"),
+            "status": self.status_input.currentText()
+        }
+        return data
+
+    def collect_edit_form_data(self):
+        data = {
+            "adopter_key": self.edit_adopter_input.text().strip(),
+            "animal_key": self.edit_animal_input.text().strip(),
+            "date": self.edit_date_input.date().toString("yyyy-MM-dd"),
+            "status": self.edit_status_input.currentText()
+        }
+        return data
+
+    def validate_data(self, data):
+        if data["adopter_key"] not in self.adopter_dict:
+            return False, "Por favor, selecione um adotante válido (use a busca para selecionar)."
+        if data["animal_key"] not in self.animal_dict:
+            return False, "Por favor, selecione um animal válido (use a busca para selecionar)."
+        return True, ""
+
+    def save_record(self, data):
+        adopter_id = self.adopter_dict[data["adopter_key"]]
+        animal_id = self.animal_dict[data["animal_key"]]
+        date = data["date"]
+        status = data["status"]
+
+        conn = create_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT status FROM animals WHERE id = ?', (animal_id,))
+        animal_status = cursor.fetchone()[0]
+        if animal_status == 'Adotado':
+            conn.close()
+            raise ValueError("Este animal já foi adotado.")
+
+        cursor.execute('''
+            INSERT INTO adoptions (adopter_id, animal_id, date, status)
+            VALUES (?, ?, ?, ?)
+        ''', (adopter_id, animal_id, date, status))
+
+        cursor.execute("UPDATE animals SET status = 'Adotado' WHERE id = ?", (animal_id,))
+
+        conn.commit()
+        conn.close()
+
+    def update_record(self, record_id, data):
+        adopter_id = self.adopter_dict[data["adopter_key"]]
+        animal_id = self.animal_dict[data["animal_key"]]
+        date = data["date"]
+        status = data["status"]
+
+        conn = create_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT animal_id FROM adoptions WHERE id = ?', (record_id,))
+        old_animal_id = cursor.fetchone()[0]
+
+        if animal_id != old_animal_id:
+            cursor.execute('SELECT status FROM animals WHERE id = ?', (animal_id,))
+            animal_status = cursor.fetchone()[0]
+            if animal_status == 'Adotado':
+                conn.close()
+                raise ValueError("O novo animal selecionado já foi adotado.")
+
+            cursor.execute("UPDATE animals SET status = 'Disponível' WHERE id = ?", (old_animal_id,))
+            cursor.execute("UPDATE animals SET status = 'Adotado' WHERE id = ?", (animal_id,))
+
+        cursor.execute('''
+            UPDATE adoptions
+            SET adopter_id = ?, animal_id = ?, date = ?, status = ?
+            WHERE id = ?
+        ''', (adopter_id, animal_id, date, status, record_id))
+
+        conn.commit()
+        conn.close()
+
+    def delete_record(self, record_id):
+        adoption_id, animal_id = record_id
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM adoptions WHERE id = ?', (adoption_id,))
+        cursor.execute("UPDATE animals SET status = 'Disponível' WHERE id = ?", (animal_id,))
+        conn.commit()
+        conn.close()
+
+    def load_record(self, record_id):
         conn = create_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT adoptions.id, adoptions.adopter_id, adoptions.animal_id, adoptions.date, adoptions.status
             FROM adoptions
             WHERE adoptions.id = ?
-        ''', (adoption_id,))
+        ''', (record_id,))
         record = cursor.fetchone()
         conn.close()
+        return record
 
-        if record:
-            self.edit_adoption_id = record[0]
-            adopter_id = record[1]
-            animal_id = record[2]
-            date = record[3]
-            status = record[4]
+    def fill_edit_form(self, record):
+        self.edit_id = record[0]
+        adopter_id = record[1]
+        animal_id = record[2]
+        date = record[3]
+        status = record[4]
 
-            # Limpar e recarregar os combos
-            self.edit_adopter_combo.clear()
-            self.edit_animal_combo.clear()
-            self.load_edit_adopters()
-            self.load_edit_animals()
+        adopters_list = self.load_adopters_list()
+        animals_list = self.load_animals_list()
+        self.setup_completer(self.edit_adopter_input, adopters_list)
+        self.setup_completer(self.edit_animal_input, animals_list)
 
-            # Inserir opção vazia no início
-            self.edit_adopter_combo.insertItem(0, "", None)
-            self.edit_animal_combo.insertItem(0, "", None)
+        adopter_key = None
+        for k, v in self.adopter_dict.items():
+            if v == adopter_id:
+                adopter_key = k
+                break
 
-            # Selecionar o adotante atual
-            index = self.edit_adopter_combo.findData(adopter_id)
-            if index != -1:
-                self.edit_adopter_combo.setCurrentIndex(index)
-            else:
-                self.edit_adopter_combo.setCurrentIndex(0)
+        animal_key = None
+        for k, v in self.animal_dict.items():
+            if v == animal_id:
+                animal_key = k
+                break
 
-            # Selecionar o animal atual
-            index = self.edit_animal_combo.findData(animal_id)
-            if index != -1:
-                self.edit_animal_combo.setCurrentIndex(index)
-            else:
-                self.edit_animal_combo.setCurrentIndex(0)
-
-            # Data
-            self.edit_date_input.setDate(datetime.strptime(date, "%Y-%m-%d"))
-
-            # Status
-            index = self.edit_status_input.findText(status)
-            if index != -1:
-                self.edit_status_input.setCurrentIndex(index)
-            else:
-                self.edit_status_input.setCurrentIndex(0)
-
-            # Alterar para a tela do formulário de edição
-            self.stacked_layout.setCurrentWidget(self.edit_form_widget)
+        if adopter_key is not None:
+            self.edit_adopter_input.setText(adopter_key)
         else:
-            QMessageBox.warning(self, "Erro", "Adoção não encontrada.")
+            self.edit_adopter_input.clear()
 
-    def load_edit_adopters(self):
-        conn = create_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, name FROM adopters')
-        adopters = cursor.fetchall()
-        for adopter in adopters:
-            self.edit_adopter_combo.addItem(f"{adopter[1]} (ID: {adopter[0]})", adopter[0])
-        conn.close()
+        if animal_key is not None:
+            self.edit_animal_input.setText(animal_key)
+        else:
+            self.edit_animal_input.clear()
 
-    def load_edit_animals(self):
-        conn = create_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, name FROM animals')
-        animals = cursor.fetchall()
-        for animal in animals:
-            self.edit_animal_combo.addItem(f"{animal[1]} (ID: {animal[0]})", animal[0])
-        conn.close()
+        self.edit_date_input.setDate(datetime.strptime(date, "%Y-%m-%d"))
 
-    def initEditFormUI(self):
-        layout = QVBoxLayout()
+        index = self.edit_status_input.findText(status)
+        if index != -1:
+            self.edit_status_input.setCurrentIndex(index)
+        else:
+            self.edit_status_input.setCurrentIndex(0)
 
-        form_layout = QFormLayout()
+        # Atualizar infos extras após preencher o form
+        self.update_adopter_info_edit()
+        self.update_animal_info_edit()
 
-        # ID da adoção
-        self.edit_adoption_id = None
+    def update_adopter_info(self):
+        key = self.adopter_input.text().strip()
+        if key in self.adopter_full_info:
+            aid, address, phone = self.adopter_full_info[key]
+            self.adopter_info.setText(f"Endereço: {address}, Telefone: {phone}")
+        else:
+            self.adopter_info.clear()
 
-        # Seleção do Adotante
-        self.edit_adopter_combo = QComboBox()
-        form_layout.addRow("Selecionar Adotante:", self.edit_adopter_combo)
+    def update_animal_info(self):
+        key = self.animal_input.text().strip()
+        if key in self.animal_full_info:
+            anid, atype, breed, status = self.animal_full_info[key]
+            self.animal_info.setText(f"Tipo: {atype}, Raça: {breed}, Status: {status}")
+        else:
+            self.animal_info.clear()
 
-        # Seleção do Animal
-        self.edit_animal_combo = QComboBox()
-        form_layout.addRow("Selecionar Animal:", self.edit_animal_combo)
+    def update_adopter_info_edit(self):
+        key = self.edit_adopter_input.text().strip()
+        if key in self.adopter_full_info:
+            aid, address, phone = self.adopter_full_info[key]
+            self.edit_adopter_info.setText(f"Endereço: {address}, Telefone: {phone}")
+        else:
+            self.edit_adopter_info.clear()
 
-        # Data da Adoção
-        self.edit_date_input = QDateEdit()
-        self.edit_date_input.setDate(datetime.now())
-        form_layout.addRow("Data da Adoção:", self.edit_date_input)
-
-        # Status
-        self.edit_status_input = QComboBox()
-        self.edit_status_input.addItems(["Pendente", "Concluída", "Cancelada"])
-        form_layout.addRow("Status:", self.edit_status_input)
-
-        layout.addLayout(form_layout)
-
-        # Botões de Ação
-        button_layout = QHBoxLayout()
-        self.update_button = QPushButton("Salvar Alterações")
-        self.update_button.clicked.connect(self.update_adoption)
-        self.cancel_edit_button = QPushButton("Cancelar")
-        self.cancel_edit_button.clicked.connect(self.cancel_form)
-        button_layout.addWidget(self.update_button)
-        button_layout.addWidget(self.cancel_edit_button)
-
-        layout.addLayout(button_layout)
-
-        self.edit_form_widget.setLayout(layout)
-
-    def update_adoption(self):
-        adopter_id = self.edit_adopter_combo.currentData()
-        animal_id = self.edit_animal_combo.currentData()
-        date = self.edit_date_input.date().toString("yyyy-MM-dd")
-        status = self.edit_status_input.currentText()
-
-        # Validação dos dados
-        if adopter_id is None:
-            QMessageBox.warning(self, "Erro", "Por favor, selecione um adotante.")
-            return
-        if animal_id is None:
-            QMessageBox.warning(self, "Erro", "Por favor, selecione um animal.")
-            return
-
-        conn = create_connection()
-        cursor = conn.cursor()
-
-        # Obter o animal_id atual da adoção
-        cursor.execute('SELECT animal_id FROM adoptions WHERE id = ?', (self.edit_adoption_id,))
-        old_animal_id = cursor.fetchone()[0]
-
-        # Se o animal foi alterado, precisamos atualizar o status dos animais
-        if animal_id != old_animal_id:
-            # Verificar se o novo animal já está adotado
-            cursor.execute('SELECT status FROM animals WHERE id = ?', (animal_id,))
-            animal_status = cursor.fetchone()[0]
-            if animal_status == 'Adotado':
-                QMessageBox.warning(self, "Erro", "O novo animal selecionado já foi adotado.")
-                conn.close()
-                return
-
-            # Atualizar status do antigo animal para 'Disponível'
-            cursor.execute("UPDATE animals SET status = 'Disponível' WHERE id = ?", (old_animal_id,))
-
-            # Atualizar status do novo animal para 'Adotado'
-            cursor.execute("UPDATE animals SET status = 'Adotado' WHERE id = ?", (animal_id,))
-
-        # Atualizar a adoção
-        cursor.execute('''
-            UPDATE adoptions
-            SET adopter_id = ?, animal_id = ?, date = ?, status = ?
-            WHERE id = ?
-        ''', (adopter_id, animal_id, date, status, self.edit_adoption_id))
-
-        conn.commit()
-        conn.close()
-
-        # Voltar para a tela da tabela e atualizar os dados
-        self.stacked_layout.setCurrentWidget(self.table_widget)
-        self.load_data()
+    def update_animal_info_edit(self):
+        key = self.edit_animal_input.text().strip()
+        if key in self.animal_full_info:
+            anid, atype, breed, status = self.animal_full_info[key]
+            self.edit_animal_info.setText(f"Tipo: {atype}, Raça: {breed}, Status: {status}")
+        else:
+            self.edit_animal_info.clear()

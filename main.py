@@ -1,6 +1,6 @@
 import sys
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel,
+    QApplication, QMainWindow, QWidget, QLabel,
     QHBoxLayout, QListWidget, QStackedWidget
 )
 from PyQt6.QtCore import Qt
@@ -12,6 +12,7 @@ from adopter_module import AdopterListWidget
 from volunteer_module import VolunteerListWidget
 from donation_module import DonationsListWidget
 from analytics_module import AnalyticsWidget
+from report_module import ReportWidget
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -36,6 +37,7 @@ class MainWindow(QMainWindow):
         self.sidebar.addItem("  - Doações")
         self.sidebar.currentRowChanged.connect(self.display)
         self.sidebar.addItem("Análise e Insights")
+        self.sidebar.addItem("Relatório")
 
         # Area principal de conteudo
         self.stack = QStackedWidget()
@@ -49,6 +51,7 @@ class MainWindow(QMainWindow):
         self.volunteers_widget = VolunteerListWidget()
         self.donations_widget = DonationsListWidget()
         self.analytics_widget = AnalyticsWidget()
+        self.reports_widget = ReportWidget()
 
         # Widgets em pilha
         self.stack.addWidget(self.home_widget)         # Index 0
@@ -58,6 +61,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.adoptions_widget)    # Index 4
         self.stack.addWidget(self.donations_widget)    # Index 5
         self.stack.addWidget(self.analytics_widget)    # Index 6
+        self.stack.addWidget(self.reports_widget)      # Index 7
 
         # Ajustando tamanho dos elementos
         main_layout.addWidget(self.sidebar, 1)  # Barra lateral =  1 unidade de espaco
@@ -88,6 +92,8 @@ class MainWindow(QMainWindow):
             self.donations_widget.load_data()
         elif index == 8:
             self.stack.setCurrentWidget(self.analytics_widget)
+        elif index == 9:
+            self.stack.setCurrentWidget(self.reports_widget)
         else:
             pass
 

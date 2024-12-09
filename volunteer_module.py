@@ -1,236 +1,220 @@
+from base_list_widget import BaseListWidget
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
-    QHBoxLayout, QLabel, QLineEdit, QTextEdit, QMessageBox,
-    QStackedLayout, QFormLayout, QDateEdit
+    QLineEdit, QPushButton, QDateEdit, QTextEdit, QMessageBox
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
-from database import create_connection
+from PyQt6.QtCore import QRegularExpression
+from PyQt6.QtGui import QRegularExpressionValidator
 from datetime import datetime
+from database import create_connection
 
-class VolunteerListWidget(QWidget):
+class VolunteerListWidget(BaseListWidget):
     def __init__(self):
         super().__init__()
-        self.current_page = 0
-        self.page_size = 25
-        self.initUI()
+        self.order_by_column = "id"
 
-    def initUI(self):
-        self.layout = QVBoxLayout()
-        self.stacked_layout = QStackedLayout()
+    def get_title(self):
+        return "Lista de Voluntários"
 
-        # Tela da tabela de voluntários
-        self.table_widget = QWidget()
-        self.initTableUI()
-        self.stacked_layout.addWidget(self.table_widget)
+    def get_new_button_text(self):
+        return "Novo Voluntário"
 
-        # Tela do formulário de novo voluntário
-        self.form_widget = QWidget()
-        self.initFormUI()
-        self.stacked_layout.addWidget(self.form_widget)
+    def get_table_headers(self):
+        # Agora temos CPF na tabela
+        return ["ID", "Nome", "Telefone", "CPF", "", ""]
 
-        # Tela do formulário de edição de voluntário
-        self.edit_form_widget = QWidget()
-        self.initEditFormUI()
-        self.stacked_layout.addWidget(self.edit_form_widget)
+    def init_search_fields(self):
+        self.search_field_combo.addItem("ID", "id")
+        self.search_field_combo.addItem("Nome", "name")
+        self.search_field_combo.addItem("Telefone", "phone")
+        self.search_field_combo.addItem("CPF", "cpf")
 
-        self.layout.addLayout(self.stacked_layout)
-        self.setLayout(self.layout)
+    def get_column_mapping(self):
+        # Mapeamento para permitir ordenação e filtragem
+        return {
+            0: "id",
+            1: "name",
+            2: "phone",
+            3: "cpf"
+        }
 
-        # Exibir a tabela inicialmente
-        self.stacked_layout.setCurrentWidget(self.table_widget)
+    def build_record_query(self, count_only=False):
+        base = "SELECT "
+        if count_only:
+            base += "COUNT(*)"
+        else:
+            # Precisamos incluir o CPF também no SELECT
+            base += "id, name, phone, cpf"
+        base += " FROM volunteers"
 
-    def initTableUI(self):
-        layout = QVBoxLayout()
+        conditions = []
+        if self.filter_field and self.filter_value:
+            field = self.filter_field
+            value = self.filter_value
+            if field == "id":
+                if value.isdigit():
+                    conditions.append("id = {}".format(int(value)))
+                else:
+                    conditions.append("CAST(id AS TEXT) LIKE '%{}%'".format(value))
+            else:
+                conditions.append("{} LIKE '%{}%'".format(field, value))
 
-        # Título
-        title = QLabel("Lista de Voluntários")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        if conditions:
+            base += " WHERE " + " AND ".join(conditions)
 
-        # Tabela
-        self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["ID", "Nome", "Telefone", "", ""])
-        layout.addWidget(self.table)
+        if not count_only:
+            if self.order_by_column is None:
+                self.order_by_column = "id"
+            base += f" ORDER BY {self.order_by_column} {self.order_direction}"
+            base += f" LIMIT {self.page_size} OFFSET {self.current_page * self.page_size}"
 
-        # Controles de Paginação
-        pagination_layout = QHBoxLayout()
-        self.prev_button = QPushButton("Anterior")
-        self.next_button = QPushButton("Próximo")
-        self.prev_button.clicked.connect(self.prev_page)
-        self.next_button.clicked.connect(self.next_page)
-        pagination_layout.addWidget(self.prev_button)
-        pagination_layout.addWidget(self.next_button)
-        layout.addLayout(pagination_layout)
+        return base
 
-        # Botão Novo Cadastro
-        self.new_button = QPushButton("Novo Voluntário")
-        self.new_button.clicked.connect(self.show_form)
-        layout.addWidget(self.new_button)
+    def add_actions_to_row(self, row_idx, row_data):
+        volunteer_id = row_data[0]
 
-        self.table_widget.setLayout(layout)
-        self.load_data()
+        edit_button = QPushButton("Editar")
+        edit_button.clicked.connect(lambda checked, vid=volunteer_id: self.edit_record(vid))
+        self.table.setCellWidget(row_idx, 4, edit_button)
 
-    def initFormUI(self):
-        layout = QVBoxLayout()
+        delete_button = QPushButton("Deletar")
+        delete_button.clicked.connect(lambda checked, vid=volunteer_id: self.delete_action(vid))
+        self.table.setCellWidget(row_idx, 5, delete_button)
 
-        form_layout = QFormLayout()
-
-        # Nome
+    def initFormFields(self, form_layout):
         self.name_input = QLineEdit()
         form_layout.addRow("Nome:", self.name_input)
 
-        # Endereço
         self.address_input = QLineEdit()
         form_layout.addRow("Endereço:", self.address_input)
 
-        # Telefone
         self.phone_input = QLineEdit()
+        self.setup_digit_only_validator(self.phone_input)
+        self.phone_input.textChanged.connect(self.format_phone)
         form_layout.addRow("Telefone:", self.phone_input)
 
-        # CPF
         self.cpf_input = QLineEdit()
+        self.setup_digit_only_validator(self.cpf_input)
+        self.cpf_input.textChanged.connect(self.format_cpf)
         form_layout.addRow("CPF:", self.cpf_input)
 
-        # Data de Nascimento
         self.birth_date_input = QDateEdit()
         self.birth_date_input.setCalendarPopup(True)
         self.birth_date_input.setDate(datetime.now())
         form_layout.addRow("Data de Nascimento:", self.birth_date_input)
 
-        # Disponibilidade
         self.availability_input = QTextEdit()
         form_layout.addRow("Disponibilidade:", self.availability_input)
 
-        # Habilidades
         self.skills_input = QTextEdit()
         form_layout.addRow("Habilidades:", self.skills_input)
 
-        # Experiência
         self.experience_input = QTextEdit()
         form_layout.addRow("Experiência:", self.experience_input)
 
-        # Motivação
         self.motivation_input = QTextEdit()
         form_layout.addRow("Motivação:", self.motivation_input)
 
-        layout.addLayout(form_layout)
-
-        # Botões de Ação
-        button_layout = QHBoxLayout()
-        self.save_button = QPushButton("Salvar")
-        self.save_button.clicked.connect(self.save_volunteer)
-        self.cancel_button = QPushButton("Cancelar")
-        self.cancel_button.clicked.connect(self.cancel_form)
-        button_layout.addWidget(self.save_button)
-        button_layout.addWidget(self.cancel_button)
-
-        layout.addLayout(button_layout)
-
-        self.form_widget.setLayout(layout)
-
-    def initEditFormUI(self):
-        layout = QVBoxLayout()
-
-        form_layout = QFormLayout()
-
-        # ID (oculto)
+    def initEditFormFields(self, form_layout):
         self.edit_id = None
 
-        # Nome
         self.edit_name_input = QLineEdit()
         form_layout.addRow("Nome:", self.edit_name_input)
 
-        # Endereço
         self.edit_address_input = QLineEdit()
         form_layout.addRow("Endereço:", self.edit_address_input)
 
-        # Telefone
         self.edit_phone_input = QLineEdit()
+        self.setup_digit_only_validator(self.edit_phone_input)
+        self.edit_phone_input.textChanged.connect(self.format_phone_edit)
         form_layout.addRow("Telefone:", self.edit_phone_input)
 
-        # CPF
         self.edit_cpf_input = QLineEdit()
+        self.setup_digit_only_validator(self.edit_cpf_input)
+        self.edit_cpf_input.textChanged.connect(self.format_cpf_edit)
         form_layout.addRow("CPF:", self.edit_cpf_input)
 
-        # Data de Nascimento
         self.edit_birth_date_input = QDateEdit()
         self.edit_birth_date_input.setCalendarPopup(True)
         self.edit_birth_date_input.setDate(datetime.now())
         form_layout.addRow("Data de Nascimento:", self.edit_birth_date_input)
 
-        # Disponibilidade
         self.edit_availability_input = QTextEdit()
         form_layout.addRow("Disponibilidade:", self.edit_availability_input)
 
-        # Habilidades
         self.edit_skills_input = QTextEdit()
         form_layout.addRow("Habilidades:", self.edit_skills_input)
 
-        # Experiência
         self.edit_experience_input = QTextEdit()
         form_layout.addRow("Experiência:", self.edit_experience_input)
 
-        # Motivação
         self.edit_motivation_input = QTextEdit()
         form_layout.addRow("Motivação:", self.edit_motivation_input)
 
-        layout.addLayout(form_layout)
+    def setup_digit_only_validator(self, line_edit):
+        regex = QRegularExpression("^[0-9]*$")
+        validator = QRegularExpressionValidator(regex)
+        line_edit.setValidator(validator)
 
-        # Botões de Ação
-        button_layout = QHBoxLayout()
-        self.update_button = QPushButton("Salvar Alterações")
-        self.update_button.clicked.connect(self.update_volunteer)
-        self.cancel_edit_button = QPushButton("Cancelar")
-        self.cancel_edit_button.clicked.connect(self.cancel_form)
-        button_layout.addWidget(self.update_button)
-        button_layout.addWidget(self.cancel_edit_button)
+    def strip_non_digits(self, s):
+        return "".join([c for c in s if c.isdigit()])
 
-        layout.addLayout(button_layout)
+    def format_phone(self):
+        text = self.strip_non_digits(self.phone_input.text())
+        if len(text) > 11:
+            text = text[:11]
+        formatted = self.format_phone_text(text)
+        self.phone_input.blockSignals(True)
+        self.phone_input.setText(formatted)
+        self.phone_input.setCursorPosition(len(self.phone_input.text()))
+        self.phone_input.blockSignals(False)
 
-        self.edit_form_widget.setLayout(layout)
+    def format_phone_edit(self):
+        text = self.strip_non_digits(self.edit_phone_input.text())
+        if len(text) > 11:
+            text = text[:11]
+        formatted = self.format_phone_text(text)
+        self.edit_phone_input.blockSignals(True)
+        self.edit_phone_input.setText(formatted)
+        self.edit_phone_input.setCursorPosition(len(self.edit_phone_input.text()))
+        self.edit_phone_input.blockSignals(False)
 
-    def load_data(self):
-        conn = create_connection()
-        cursor = conn.cursor()
-        offset = self.current_page * self.page_size
-        cursor.execute('''
-            SELECT id, name, phone FROM volunteers
-            LIMIT ? OFFSET ?
-        ''', (self.page_size, offset))
-        records = cursor.fetchall()
-        self.table.setRowCount(len(records))
+    def format_phone_text(self, digits):
+        if len(digits) == 0:
+            return ""
+        if len(digits) == 10:
+            return f"({digits[0:2]}) {digits[2:6]}-{digits[6:]}"
+        elif len(digits) == 11:
+            return f"({digits[0:2]}) {digits[2:7]}-{digits[7:]}"
+        else:
+            return digits
 
-        for row_idx, row_data in enumerate(records):
-            for col_idx, col_data in enumerate(row_data):
-                self.table.setItem(row_idx, col_idx, QTableWidgetItem(str(col_data)))
+    def format_cpf(self):
+        text = self.strip_non_digits(self.cpf_input.text())
+        if len(text) > 11:
+            text = text[:11]
+        formatted = self.format_cpf_text(text)
+        self.cpf_input.blockSignals(True)
+        self.cpf_input.setText(formatted)
+        self.cpf_input.setCursorPosition(len(self.cpf_input.text()))
+        self.cpf_input.blockSignals(False)
 
-            volunteer_id = row_data[0]
+    def format_cpf_edit(self):
+        text = self.strip_non_digits(self.edit_cpf_input.text())
+        if len(text) > 11:
+            text = text[:11]
+        formatted = self.format_cpf_text(text)
+        self.edit_cpf_input.blockSignals(True)
+        self.edit_cpf_input.setText(formatted)
+        self.edit_cpf_input.setCursorPosition(len(self.edit_cpf_input.text()))
+        self.edit_cpf_input.blockSignals(False)
 
-            # Botão de editar
-            edit_button = QPushButton("Editar")
-            edit_button.clicked.connect(lambda checked, vid=volunteer_id: self.edit_volunteer(vid))
-            self.table.setCellWidget(row_idx, 3, edit_button)
+    def format_cpf_text(self, digits):
+        if len(digits) == 11:
+            return f"{digits[0:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:11]}"
+        else:
+            return digits
 
-            # Botão de deletar
-            delete_button = QPushButton("Deletar")
-            delete_button.clicked.connect(lambda checked, vid=volunteer_id: self.delete_volunteer(vid))
-            self.table.setCellWidget(row_idx, 4, delete_button)
-
-        conn.close()
-
-    def next_page(self):
-        self.current_page += 1
-        self.load_data()
-
-    def prev_page(self):
-        if self.current_page > 0:
-            self.current_page -= 1
-            self.load_data()
-
-    def show_form(self):
-        # Limpar os campos do formulário
+    def clear_form(self):
         self.name_input.clear()
         self.address_input.clear()
         self.phone_input.clear()
@@ -240,115 +224,142 @@ class VolunteerListWidget(QWidget):
         self.skills_input.clear()
         self.experience_input.clear()
         self.motivation_input.clear()
-        # Alterar para a tela do formulário
-        self.stacked_layout.setCurrentWidget(self.form_widget)
 
-    def cancel_form(self):
-        # Voltar para a tela da tabela
-        self.stacked_layout.setCurrentWidget(self.table_widget)
+    def clear_edit_form(self):
+        self.edit_name_input.clear()
+        self.edit_address_input.clear()
+        self.edit_phone_input.clear()
+        self.edit_cpf_input.clear()
+        self.edit_birth_date_input.setDate(datetime.now())
+        self.edit_availability_input.clear()
+        self.edit_skills_input.clear()
+        self.edit_experience_input.clear()
+        self.edit_motivation_input.clear()
 
-    def save_volunteer(self):
-        name = self.name_input.text().strip()
-        address = self.address_input.text().strip()
-        phone = self.phone_input.text().strip()
-        cpf = self.cpf_input.text().strip()
-        birth_date = self.birth_date_input.date().toString("yyyy-MM-dd")
-        availability = self.availability_input.toPlainText().strip()
-        skills = self.skills_input.toPlainText().strip()
-        experience = self.experience_input.toPlainText().strip()
-        motivation = self.motivation_input.toPlainText().strip()
+    def collect_form_data(self):
+        phone_digits = self.strip_non_digits(self.phone_input.text())
+        cpf_digits = self.strip_non_digits(self.cpf_input.text())
 
-        # Validação dos dados
-        if not name or not cpf:
-            QMessageBox.warning(self, "Erro", "Por favor, preencha os campos obrigatórios: Nome e CPF.")
-            return
+        data = {
+            "name": self.name_input.text().strip(),
+            "address": self.address_input.text().strip(),
+            "phone": phone_digits,
+            "cpf": cpf_digits,
+            "birth_date": self.birth_date_input.date().toString("yyyy-MM-dd"),
+            "availability": self.availability_input.toPlainText().strip(),
+            "skills": self.skills_input.toPlainText().strip(),
+            "experience": self.experience_input.toPlainText().strip(),
+            "motivation": self.motivation_input.toPlainText().strip()
+        }
+        return data
 
+    def collect_edit_form_data(self):
+        phone_digits = self.strip_non_digits(self.edit_phone_input.text())
+        cpf_digits = self.strip_non_digits(self.edit_cpf_input.text())
+
+        data = {
+            "name": self.edit_name_input.text().strip(),
+            "address": self.edit_address_input.text().strip(),
+            "phone": phone_digits,
+            "cpf": cpf_digits,
+            "birth_date": self.edit_birth_date_input.date().toString("yyyy-MM-dd"),
+            "availability": self.edit_availability_input.toPlainText().strip(),
+            "skills": self.edit_skills_input.toPlainText().strip(),
+            "experience": self.edit_experience_input.toPlainText().strip(),
+            "motivation": self.edit_motivation_input.toPlainText().strip()
+        }
+        return data
+
+    def validate_data(self, data):
+        # Campos obrigatórios: Nome, Endereço, CPF
+        if not data["name"] or not data["cpf"] or not data["address"]:
+            return False, "Por favor, preencha os campos obrigatórios: Nome, Endereço e CPF."
+
+        # CPF deve ter 11 dígitos
+        if len(data["cpf"]) != 11:
+            return False, "CPF deve ter 11 dígitos."
+
+        # Telefone: se não vazio, deve ter 10 ou 11 dígitos
+        if data["phone"]:
+            if len(data["phone"]) not in (10, 11):
+                return False, "Telefone inválido. Deve conter 10 ou 11 dígitos."
+
+        return True, ""
+
+    def save_record(self, data):
         conn = create_connection()
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO volunteers (name, address, phone, cpf, birth_date, availability, skills, experience, motivation)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (name, address, phone, cpf, birth_date, availability, skills, experience, motivation))
+        ''', (data["name"], data["address"], data["phone"], data["cpf"], data["birth_date"], data["availability"], data["skills"], data["experience"], data["motivation"]))
         conn.commit()
         conn.close()
 
-        # Voltar para a tela da tabela e atualizar os dados
-        self.stacked_layout.setCurrentWidget(self.table_widget)
-        self.load_data()
-
-    def edit_volunteer(self, volunteer_id):
-        # Carregar dados do voluntário
-        conn = create_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM volunteers WHERE id = ?', (volunteer_id,))
-        record = cursor.fetchone()
-        conn.close()
-
-        if record:
-            self.edit_id = record[0]
-            self.edit_name_input.setText(record[1])
-            self.edit_address_input.setText(record[2])
-            self.edit_phone_input.setText(record[3])
-            self.edit_cpf_input.setText(record[4])
-            self.edit_birth_date_input.setDate(datetime.strptime(record[5], "%Y-%m-%d"))
-            self.edit_availability_input.setPlainText(record[6])
-            self.edit_skills_input.setPlainText(record[7])
-            self.edit_experience_input.setPlainText(record[8])
-            self.edit_motivation_input.setPlainText(record[9])
-            # Alterar para a tela do formulário de edição
-            self.stacked_layout.setCurrentWidget(self.edit_form_widget)
-        else:
-            QMessageBox.warning(self, "Erro", "Voluntário não encontrado.")
-
-    def update_volunteer(self):
-        name = self.edit_name_input.text().strip()
-        address = self.edit_address_input.text().strip()
-        phone = self.edit_phone_input.text().strip()
-        cpf = self.edit_cpf_input.text().strip()
-        birth_date = self.edit_birth_date_input.date().toString("yyyy-MM-dd")
-        availability = self.edit_availability_input.toPlainText().strip()
-        skills = self.edit_skills_input.toPlainText().strip()
-        experience = self.edit_experience_input.toPlainText().strip()
-        motivation = self.edit_motivation_input.toPlainText().strip()
-
-        # Validação dos dados
-        if not name or not cpf:
-            QMessageBox.warning(self, "Erro", "Por favor, preencha os campos obrigatórios: Nome e CPF.")
-            return
-
+    def update_record(self, record_id, data):
         conn = create_connection()
         cursor = conn.cursor()
         cursor.execute('''
             UPDATE volunteers
             SET name = ?, address = ?, phone = ?, cpf = ?, birth_date = ?, availability = ?, skills = ?, experience = ?, motivation = ?
             WHERE id = ?
-        ''', (name, address, phone, cpf, birth_date, availability, skills, experience, motivation, self.edit_id))
+        ''', (data["name"], data["address"], data["phone"], data["cpf"], data["birth_date"], data["availability"], data["skills"], data["experience"], data["motivation"], record_id))
         conn.commit()
         conn.close()
 
-        # Voltar para a tela da tabela e atualizar os dados
-        self.stacked_layout.setCurrentWidget(self.table_widget)
-        self.load_data()
+    def delete_record(self, record_id):
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM volunteers WHERE id = ?', (record_id,))
+        conn.commit()
+        conn.close()
 
-    def delete_volunteer(self, volunteer_id):
+    def load_record(self, record_id):
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM volunteers WHERE id = ?', (record_id,))
+        record = cursor.fetchone()
+        conn.close()
+        return record
+
+    def fill_edit_form(self, record):
+        self.edit_id = record[0]
+        self.edit_name_input.setText(record[1])
+        self.edit_address_input.setText(record[2])
+
+        phone_digits = record[3] if record[3] else ""
+        self.edit_phone_input.setText(phone_digits)
+
+        cpf_digits = record[4] if record[4] else ""
+        self.edit_cpf_input.setText(cpf_digits)
+
+        self.edit_birth_date_input.setDate(datetime.strptime(record[5], "%Y-%m-%d"))
+        self.edit_availability_input.setPlainText(record[6] if record[6] else "")
+        self.edit_skills_input.setPlainText(record[7] if record[7] else "")
+        self.edit_experience_input.setPlainText(record[8] if record[8] else "")
+        self.edit_motivation_input.setPlainText(record[9] if record[9] else "")
+
+    def edit_record(self, record_id):
+        record = self.load_record(record_id)
+        if record:
+            self.fill_edit_form(record)
+            self.stacked_layout.setCurrentWidget(self.edit_form_widget)
+        else:
+            QMessageBox.warning(self, "Erro", "Voluntário não encontrado.")
+
+    def delete_action(self, record_id):
         reply = QMessageBox.question(
             self, 'Confirmação', 'Tem certeza que deseja deletar este voluntário?',
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
         )
-
         if reply == QMessageBox.StandardButton.Yes:
             conn = create_connection()
             cursor = conn.cursor()
-
-            # Verificar se o voluntário tem doações associadas
-            cursor.execute('SELECT COUNT(*) FROM donations WHERE volunteer_id = ?', (volunteer_id,))
+            cursor.execute('SELECT COUNT(*) FROM donations WHERE volunteer_id = ?', (record_id,))
             count = cursor.fetchone()[0]
             if count > 0:
                 QMessageBox.warning(self, "Erro", "Não é possível deletar um voluntário com doações associadas.")
                 conn.close()
                 return
-
-            cursor.execute('DELETE FROM volunteers WHERE id = ?', (volunteer_id,))
-            conn.commit()
-            conn.close()
+            self.delete_record(record_id)
             self.load_data()

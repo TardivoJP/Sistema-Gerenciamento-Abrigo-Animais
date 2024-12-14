@@ -1,5 +1,5 @@
 from base_list_widget import BaseListWidget
-from PyQt6.QtWidgets import QLineEdit, QDateEdit, QComboBox, QMessageBox, QPushButton, QCompleter
+from PyQt6.QtWidgets import QLineEdit, QDateEdit, QComboBox, QMessageBox, QPushButton, QCompleter, QWidget, QVBoxLayout, QFormLayout
 from PyQt6.QtCore import Qt
 from datetime import datetime
 from database import create_connection
@@ -11,9 +11,9 @@ class AdoptionListWidget(BaseListWidget):
         }
         super().__init__()
         self.order_by_column = "adoptions.id"  
-
         self.adopter_dict = {}
         self.animal_dict = {}
+        self.initDetailsUI()
 
     def get_title(self):
         return "Lista de Adoções"
@@ -22,11 +22,11 @@ class AdoptionListWidget(BaseListWidget):
         return "Nova Adoção"
 
     def get_table_headers(self):
-        return ["ID", "Adotante", "Animal", "Data", "Status", "", ""]
+        return ["ID", "Adotante", "Animal", "Data", "Status", "Criado em", "Detalhes", "Editar", "Deletar"]
 
     def init_search_fields(self):
         self.search_field_combo.addItem("ID", "adoptions.id")
-        self.search_field_combo.addItem("Adotante", "adopters.name")
+        self.search_field_combo.addItem("Adotante", "persons.name")
         self.search_field_combo.addItem("Animal", "animals.name")
         self.search_field_combo.addItem("Status", "adoptions.status")
         self.search_field_combo.addItem("Data", "adoptions.date")
@@ -34,26 +34,29 @@ class AdoptionListWidget(BaseListWidget):
     def get_column_mapping(self):
         return {
             0: "adoptions.id",
-            1: "adopters.name",
+            1: "persons.name",
             2: "animals.name",
             3: "adoptions.date",
-            4: "adoptions.status"
+            4: "adoptions.status",
+            5: "adoptions.created_at"
         }
-
+    
     def build_record_query(self, count_only=False):
         base = "SELECT "
         if count_only:
             base += "COUNT(*)"
         else:
-            base += "adoptions.id, adopters.name, animals.name, adoptions.date, adoptions.status, animals.id"
+            base += "adoptions.id, persons.name, animals.name, adoptions.date, adoptions.status, adoptions.created_at, animals.id"
         base += " FROM adoptions"
         base += " JOIN adopters ON adoptions.adopter_id = adopters.id"
+        base += " JOIN persons ON adopters.person_id = persons.id"
         base += " JOIN animals ON adoptions.animal_id = animals.id"
 
         conditions = []
         if self.filter_field and self.filter_value:
             field = self.filter_field
             value = self.filter_value
+            
             if field == "adoptions.id":
                 if value.isdigit():
                     conditions.append("adoptions.id = {}".format(int(value)))
@@ -64,7 +67,7 @@ class AdoptionListWidget(BaseListWidget):
             elif field == "adoptions.date":
                 conditions.append("adoptions.date LIKE '%{}%'".format(value))
             elif field == "adopters.name":
-                conditions.append("adopters.name LIKE '%{}%'".format(value))
+                field = "persons.name"
             elif field == "animals.name":
                 conditions.append("animals.name LIKE '%{}%'".format(value))
 
@@ -81,15 +84,19 @@ class AdoptionListWidget(BaseListWidget):
 
     def add_actions_to_row(self, row_idx, row_data):
         adoption_id = row_data[0]
-        animal_id = row_data[5]
+        animal_id = row_data[6]
+        details_button = QPushButton("Detalhes")
+        details_button.clicked.connect(lambda checked, aid=adoption_id: self.show_details(aid))
+        self.table.setCellWidget(row_idx, 6, details_button)
 
         edit_button = QPushButton("Editar")
         edit_button.clicked.connect(lambda checked, aid=adoption_id: self.edit_record(aid))
-        self.table.setCellWidget(row_idx, 5, edit_button)
+        self.table.setCellWidget(row_idx, 7, edit_button)
 
         delete_button = QPushButton("Deletar")
         delete_button.clicked.connect(lambda checked, aid=adoption_id, anid=animal_id: self.delete_action(aid, anid))
-        self.table.setCellWidget(row_idx, 6, delete_button)
+        self.table.setCellWidget(row_idx, 8, delete_button)
+
 
     def delete_action(self, adoption_id, animal_id):
         reply = QMessageBox.question(
@@ -162,14 +169,16 @@ class AdoptionListWidget(BaseListWidget):
     def load_adopters_list(self):
         conn = create_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT id, name, address, phone FROM adopters')
+        cursor.execute('''
+            SELECT adopters.id, persons.name, persons.address, persons.phone
+            FROM adopters
+            JOIN persons ON adopters.person_id = persons.id
+        ''')
         adopters = cursor.fetchall()
         conn.close()
         self.adopter_dict.clear()
-        items = []
-        # Agora armazenamos não só o ID, mas também infos extras
-        # { "Pedro (ID:10)": (10, "Endereço...", "Telefone...") }
         self.adopter_full_info = {}
+        items = []
         for (aid, name, address, phone) in adopters:
             key = f"{name} (ID:{aid})"
             self.adopter_dict[key] = aid
@@ -264,19 +273,21 @@ class AdoptionListWidget(BaseListWidget):
         conn = create_connection()
         cursor = conn.cursor()
 
+        # Verificar animal adotado
         cursor.execute('SELECT status FROM animals WHERE id = ?', (animal_id,))
         animal_status = cursor.fetchone()[0]
         if animal_status == 'Adotado':
             conn.close()
-            raise ValueError("Este animal já foi adotado.")
+            QMessageBox.warning(self, "Erro", "Este animal já foi adotado.")
+            return
 
+        created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute('''
-            INSERT INTO adoptions (adopter_id, animal_id, date, status)
-            VALUES (?, ?, ?, ?)
-        ''', (adopter_id, animal_id, date, status))
+            INSERT INTO adoptions (adopter_id, animal_id, date, status, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (adopter_id, animal_id, date, status, created_at))
 
         cursor.execute("UPDATE animals SET status = 'Adotado' WHERE id = ?", (animal_id,))
-
         conn.commit()
         conn.close()
 
@@ -409,3 +420,57 @@ class AdoptionListWidget(BaseListWidget):
             self.edit_animal_info.setText(f"Tipo: {atype}, Raça: {breed}, Status: {status}")
         else:
             self.edit_animal_info.clear()
+
+    def initDetailsUI(self):
+        # Similar ao que fizemos antes
+        self.details_widget = QWidget()
+        details_layout = QVBoxLayout()
+        self.details_form = QFormLayout()
+
+        self.details_adopter = QLineEdit(); self.details_adopter.setReadOnly(True)
+        self.details_form.addRow("Adotante:", self.details_adopter)
+
+        self.details_animal = QLineEdit(); self.details_animal.setReadOnly(True)
+        self.details_form.addRow("Animal:", self.details_animal)
+
+        self.details_date = QLineEdit(); self.details_date.setReadOnly(True)
+        self.details_form.addRow("Data:", self.details_date)
+
+        self.details_status = QLineEdit(); self.details_status.setReadOnly(True)
+        self.details_form.addRow("Status:", self.details_status)
+
+        self.details_created_at = QLineEdit(); self.details_created_at.setReadOnly(True)
+        self.details_form.addRow("Criado em:", self.details_created_at)
+
+        details_layout.addLayout(self.details_form)
+        close_button = QPushButton("Fechar")
+        close_button.clicked.connect(lambda: self.stacked_layout.setCurrentWidget(self.table_widget))
+        details_layout.addWidget(close_button)
+        self.details_widget.setLayout(details_layout)
+        self.stacked_layout.addWidget(self.details_widget)
+
+    def show_details(self, record_id):
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT adoptions.id, persons.name, animals.name, adoptions.date, adoptions.status, adoptions.created_at
+            FROM adoptions
+            JOIN adopters ON adoptions.adopter_id = adopters.id
+            JOIN persons ON adopters.person_id = persons.id
+            JOIN animals ON adoptions.animal_id = animals.id
+            WHERE adoptions.id = ?
+        ''', (record_id,))
+        record = cursor.fetchone()
+        conn.close()
+
+        if not record:
+            QMessageBox.warning(self, "Erro", "Adoção não encontrada.")
+            return
+
+        self.details_adopter.setText(record[1] if record[1] else "")
+        self.details_animal.setText(record[2] if record[2] else "")
+        self.details_date.setText(record[3] if record[3] else "")
+        self.details_status.setText(record[4] if record[4] else "")
+        self.details_created_at.setText(record[5] if record[5] else "")
+
+        self.stacked_layout.setCurrentWidget(self.details_widget)

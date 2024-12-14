@@ -1,9 +1,9 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QDateEdit, QTextEdit, QMessageBox
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QDate
 from database import create_connection
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
 try:
@@ -22,22 +22,51 @@ class ReportWidget(QWidget):
     def initUI(self):
         layout = QVBoxLayout()
 
+        # Título
         title = QLabel("Relatório")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size: 24px; font-weight: bold;")
         layout.addWidget(title)
 
+        # Barra de Botões Rápidos para Relatórios Temporais
+        quick_report_layout = QHBoxLayout()
+        self.weekly_button = QPushButton("Semanal")
+        self.weekly_button.clicked.connect(lambda: self.set_date_range('weekly'))
+        quick_report_layout.addWidget(self.weekly_button)
+
+        self.biweekly_button = QPushButton("Quinzenal")
+        self.biweekly_button.clicked.connect(lambda: self.set_date_range('biweekly'))
+        quick_report_layout.addWidget(self.biweekly_button)
+
+        self.monthly_button = QPushButton("Mensal")
+        self.monthly_button.clicked.connect(lambda: self.set_date_range('monthly'))
+        quick_report_layout.addWidget(self.monthly_button)
+
+        self.bimonthly_button = QPushButton("Bimestral")
+        self.bimonthly_button.clicked.connect(lambda: self.set_date_range('bimonthly'))
+        quick_report_layout.addWidget(self.bimonthly_button)
+
+        self.semiannual_button = QPushButton("Semestral")
+        self.semiannual_button.clicked.connect(lambda: self.set_date_range('semiannual'))
+        quick_report_layout.addWidget(self.semiannual_button)
+
+        self.annual_button = QPushButton("Anual")
+        self.annual_button.clicked.connect(lambda: self.set_date_range('annual'))
+        quick_report_layout.addWidget(self.annual_button)
+
+        layout.addLayout(quick_report_layout)
+
         # Seleção de Data Inicial e Data Final
         date_layout = QHBoxLayout()
         self.start_date = QDateEdit()
         self.start_date.setCalendarPopup(True)
-        self.start_date.setDate(datetime.now())
+        self.start_date.setDate(QDate.currentDate())
         date_layout.addWidget(QLabel("Data Inicial:"))
         date_layout.addWidget(self.start_date)
 
         self.end_date = QDateEdit()
         self.end_date.setCalendarPopup(True)
-        self.end_date.setDate(datetime.now())
+        self.end_date.setDate(QDate.currentDate())
         date_layout.addWidget(QLabel("Data Final:"))
         date_layout.addWidget(self.end_date)
 
@@ -61,6 +90,27 @@ class ReportWidget(QWidget):
 
         self.setLayout(layout)
 
+    def set_date_range(self, period):
+        end_date = QDate.currentDate()
+        if period == 'weekly':
+            start_date = end_date.addDays(-7)
+        elif period == 'biweekly':
+            start_date = end_date.addDays(-14)
+        elif period == 'monthly':
+            start_date = end_date.addMonths(-1)
+        elif period == 'bimonthly':
+            start_date = end_date.addMonths(-2)
+        elif period == 'semiannual':
+            start_date = end_date.addMonths(-6)
+        elif period == 'annual':
+            start_date = end_date.addYears(-1)
+        else:
+            start_date = end_date
+
+        self.start_date.setDate(start_date)
+        self.end_date.setDate(end_date)
+        self.generate_report()
+
     def generate_report(self):
         start = self.start_date.date().toString("yyyy-MM-dd")
         end = self.end_date.date().toString("yyyy-MM-dd")
@@ -77,68 +127,74 @@ class ReportWidget(QWidget):
         conn = create_connection()
         cursor = conn.cursor()
 
-        # Animais disponíveis no final do período:
-        # status != 'Adotado'
-        # Isso é no final do período, assumiremos estado atual (não temos histórico).
-        # Se quisermos considerar apenas os animais adicionados até end_dt,
-        # precisamos de um campo data_criacao em animals (não existe).
-        # Por enquanto, consideramos estado atual.
-        cursor.execute('SELECT COUNT(*) FROM animals WHERE status != "Adotado"')
-        total_animals_available = cursor.fetchone()[0]
+        # 1. Total de Animais Disponíveis no Final do Período
+        cursor.execute('''
+            SELECT COUNT(*) FROM animals
+            WHERE DATE(created_at) <= DATE(?)
+              AND status != 'Adotado'
+        ''', (end,))
+        total_animais_disponiveis = cursor.fetchone()[0]
 
-        # Adoções realizadas no período
+        # 2. Total de Animais Adicionados no Período
+        cursor.execute('''
+            SELECT COUNT(*) FROM animals
+            WHERE DATE(created_at) BETWEEN DATE(?) AND DATE(?)
+        ''', (start, end))
+        total_animais_adicionados = cursor.fetchone()[0]
+
+        # 3. Adoções Realizadas no Período
         cursor.execute('''
             SELECT COUNT(*) FROM adoptions
-            WHERE date BETWEEN ? AND ?
+            WHERE DATE(date) BETWEEN DATE(?) AND DATE(?)
         ''', (start, end))
-        adoptions_count = cursor.fetchone()[0]
+        total_adocoes = cursor.fetchone()[0]
 
-        # Doações no período (soma)
+        # 4. Doações Recebidas no Período
         cursor.execute('''
             SELECT SUM(amount) FROM donations
-            WHERE date BETWEEN ? AND ?
+            WHERE DATE(date) BETWEEN DATE(?) AND DATE(?)
         ''', (start, end))
-        donations_sum = cursor.fetchone()[0]
-        if donations_sum is None:
-            donations_sum = 0.0
+        doacoes_sum = cursor.fetchone()[0]
+        if doacoes_sum is None:
+            doacoes_sum = 0.0
 
-        # Novos voluntários no período
-        # Precisamos de um campo data_criacao em volunteers para isso. Não temos no schema atual.
-        # Supondo que iremos adicionar campo 'created_at' em volunteers (YYYY-MM-DD)
-        # Caso não haja, apenas não mostra essa estatística ou assume que não temos histórico.
-        # Aqui demonstraremos com a suposição que existe um campo created_at:
-        # Se não existe, vamos pular essa estatística ou mostrar não disponível.
-        try:
-            cursor.execute('SELECT COUNT(*) FROM volunteers WHERE birth_date BETWEEN ? AND ?', (start, end))
-            # Usando birth_date como um proxy, NÃO É O IDEAL, pois não temos data de criação no schema.
-            # Em um cenário real, precisaríamos de um campo data_criacao em volunteers.
-            new_volunteers = cursor.fetchone()[0]
-        except:
-            new_volunteers = "N/D"
+        # 5. Total de Novos Adotantes no Período
+        cursor.execute('''
+            SELECT COUNT(*) FROM adopters
+            WHERE DATE(created_at) BETWEEN DATE(?) AND DATE(?)
+        ''', (start, end))
+        novos_adotantes = cursor.fetchone()[0]
 
-        # Animais adicionados no período
-        # Mesmo problema que voluntários. Não existe campo de data_criacao em animals.
-        # Vamos pular ou mostrar não disponível.
-        # Precisaríamos de uma coluna 'added_date' em animals.
-        # Suponhamos que iremos pular esta estatística se não temos data.
-        new_animals = "N/D"
+        # 6. Total de Novos Voluntários no Período
+        cursor.execute('''
+            SELECT COUNT(*) FROM volunteers
+            WHERE DATE(created_at) BETWEEN DATE(?) AND DATE(?)
+        ''', (start, end))
+        novos_voluntarios = cursor.fetchone()[0]
+
+        # 7. Total de Doações Médias por Dia no Período
+        dias = (end_dt - start_dt).days + 1
+        doacoes_media_diaria = doacoes_sum / dias if dias > 0 else 0.0
 
         conn.close()
 
         # Montar o texto do relatório
         report_str = f"Relatório de {start} a {end}\n\n"
-        report_str += f"Animais disponíveis atualmente: {total_animals_available}\n"
-        report_str += f"Adoções realizadas no período: {adoptions_count}\n"
-        report_str += f"Total de Doações no período: R$ {donations_sum:.2f}\n"
-        report_str += f"Novos voluntários (baseado em birth_date): {new_volunteers}\n"
-        report_str += f"Novos animais adicionados no período: {new_animals}\n"
+        report_str += f"1. Total de Animais Disponíveis: {total_animais_disponiveis}\n"
+        report_str += f"2. Total de Animais Adicionados no Período: {total_animais_adicionados}\n"
+        report_str += f"3. Total de Adoções Realizadas: {total_adocoes}\n"
+        report_str += f"4. Total de Doações Recebidas: R$ {doacoes_sum:.2f}\n"
+        report_str += f"5. Total de Novos Adotantes: {novos_adotantes}\n"
+        report_str += f"6. Total de Novos Voluntários: {novos_voluntarios}\n"
+        report_str += f"7. Doações Médias por Dia: R$ {doacoes_media_diaria:.2f}\n"
 
+        # Exibir o relatório na interface
         self.report_text.setText(report_str)
         self.export_button.setEnabled(True)
 
     def export_pdf(self):
         if not PDF_AVAILABLE:
-            QMessageBox.warning(self, "Erro", "Biblioteca 'reportlab' não disponível. Não é possível exportar PDF.")
+            QMessageBox.warning(self, "Erro", "Biblioteca 'reportlab' não está instalada. Instale-a usando 'pip install reportlab'.")
             return
 
         report_content = self.report_text.toPlainText()
@@ -149,14 +205,17 @@ class ReportWidget(QWidget):
         # Caminho do arquivo PDF
         filename = "relatorio.pdf"
 
-        c = canvas.Canvas(filename, pagesize=A4)
-        c.setFont("Helvetica", 12)
+        try:
+            c = canvas.Canvas(filename, pagesize=A4)
+            c.setFont("Helvetica", 12)
 
-        text_object = c.beginText(2*cm, 27*cm)
-        for line in report_content.split("\n"):
-            text_object.textLine(line)
-        c.drawText(text_object)
-        c.showPage()
-        c.save()
+            text_object = c.beginText(2*cm, 27*cm)
+            for line in report_content.split("\n"):
+                text_object.textLine(line)
+            c.drawText(text_object)
+            c.showPage()
+            c.save()
 
-        QMessageBox.information(self, "Sucesso", f"Relatório exportado para {os.path.abspath(filename)}")
+            QMessageBox.information(self, "Sucesso", f"Relatório exportado para {os.path.abspath(filename)}")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Ocorreu um erro ao exportar o PDF: {str(e)}")

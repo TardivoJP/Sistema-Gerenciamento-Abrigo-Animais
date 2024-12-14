@@ -1,7 +1,5 @@
 from base_list_widget import BaseListWidget
-from PyQt6.QtWidgets import (
-    QLineEdit, QPushButton, QDateEdit, QCompleter, QMessageBox
-)
+from PyQt6.QtWidgets import QLineEdit, QPushButton, QDateEdit, QCompleter, QMessageBox, QWidget, QVBoxLayout, QFormLayout
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QDoubleValidator
 from datetime import datetime
@@ -13,6 +11,7 @@ class DonationsListWidget(BaseListWidget):
         self.order_by_column = "donations.id"
         self.volunteer_dict = {}
         self.volunteer_full_info = {}
+        self.initDetailsUI()
 
     def get_title(self):
         return "Lista de Doações"
@@ -21,47 +20,49 @@ class DonationsListWidget(BaseListWidget):
         return "Nova Doação"
 
     def get_table_headers(self):
-        return ["ID", "Voluntário", "Data", "Valor", ""]
+        return ["ID", "Voluntário", "Data", "Valor", "Criado em", "Detalhes", "Editar", "Deletar"]
 
     def init_search_fields(self):
         self.search_field_combo.addItem("ID", "donations.id")
-        self.search_field_combo.addItem("Voluntário", "volunteers.name")
+        self.search_field_combo.addItem("Voluntário", "persons.name")
         self.search_field_combo.addItem("Data", "donations.date")
         self.search_field_combo.addItem("Valor", "donations.amount")
 
     def get_column_mapping(self):
         return {
             0: "donations.id",
-            1: "volunteers.name",
+            1: "persons.name",
             2: "donations.date",
-            3: "donations.amount"
+            3: "donations.amount",
+            4: "donations.created_at"
         }
-
+    
     def build_record_query(self, count_only=False):
         base = "SELECT "
         if count_only:
             base += "COUNT(*)"
         else:
-            base += "donations.id, volunteers.name, donations.date, donations.amount, volunteers.id"
-        base += " FROM donations JOIN volunteers ON donations.volunteer_id = volunteers.id"
+            base += "donations.id, persons.name, donations.date, donations.amount, donations.created_at, volunteers.id"
+        base += " FROM donations"
+        base += " JOIN volunteers ON donations.volunteer_id = volunteers.id"
+        base += " JOIN persons ON volunteers.person_id = persons.id"
 
         conditions = []
         if self.filter_field and self.filter_value:
             field = self.filter_field
             value = self.filter_value
+            field = field.replace("volunteers.name", "persons.name")
+
             if field == "donations.id":
                 if value.isdigit():
                     conditions.append("donations.id = {}".format(int(value)))
                 else:
                     conditions.append("CAST(donations.id AS TEXT) LIKE '%{}%'".format(value))
-            elif field == "volunteers.name":
-                conditions.append("volunteers.name LIKE '%{}%'".format(value))
+            elif field == "persons.name":
+                conditions.append("persons.name LIKE '%{}%'".format(value))
             elif field == "donations.date":
                 conditions.append("donations.date LIKE '%{}%'".format(value))
             elif field == "donations.amount":
-                # Filtrar por valor, se for um número exato ou range, aqui apenas LIKE
-                # Se quisermos filtrar número exato, podemos tentar converter
-                # Simplesmente usar LIKE por enquanto:
                 conditions.append("CAST(donations.amount AS TEXT) LIKE '%{}%'".format(value))
 
         if conditions:
@@ -78,10 +79,17 @@ class DonationsListWidget(BaseListWidget):
     def add_actions_to_row(self, row_idx, row_data):
         donation_id = row_data[0]
 
-        # Botão de deletar
+        details_button = QPushButton("Detalhes")
+        details_button.clicked.connect(lambda checked, did=donation_id: self.show_details(did))
+        self.table.setCellWidget(row_idx, 5, details_button)
+
+        edit_button = QPushButton("Editar")
+        edit_button.clicked.connect(lambda checked, did=donation_id: self.edit_record(did))
+        self.table.setCellWidget(row_idx, 6, edit_button)
+
         delete_button = QPushButton("Deletar")
         delete_button.clicked.connect(lambda checked, did=donation_id: self.delete_action(did))
-        self.table.setCellWidget(row_idx, 4, delete_button)
+        self.table.setCellWidget(row_idx, 7, delete_button)
 
     def initFormFields(self, form_layout):
         # Campo do voluntário
@@ -134,17 +142,19 @@ class DonationsListWidget(BaseListWidget):
     def load_volunteers_list(self):
         conn = create_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT id, name, address, phone, cpf, birth_date FROM volunteers')
+        cursor.execute('''
+            SELECT volunteers.id, persons.name, persons.address, persons.phone
+            FROM volunteers
+            JOIN persons ON volunteers.person_id = persons.id
+        ''')
         volunteers = cursor.fetchall()
         conn.close()
         self.volunteer_dict.clear()
         self.volunteer_full_info.clear()
         items = []
-        for (vid, name, address, phone, cpf, birth_date) in volunteers:
+        for (vid, name, address, phone) in volunteers:
             key = f"{name} (ID:{vid})"
             self.volunteer_dict[key] = vid
-            # Guardar infos do voluntário
-            # Mostrar endereço, telefone no info
             self.volunteer_full_info[key] = (vid, address, phone)
             items.append(key)
         return items
@@ -216,10 +226,11 @@ class DonationsListWidget(BaseListWidget):
 
         conn = create_connection()
         cursor = conn.cursor()
+        created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute('''
-            INSERT INTO donations (volunteer_id, date, amount)
-            VALUES (?, ?, ?)
-        ''', (volunteer_id, date, amount))
+            INSERT INTO donations (volunteer_id, date, amount, created_at)
+            VALUES (?, ?, ?, ?)
+        ''', (volunteer_id, date, amount, created_at))
         conn.commit()
         conn.close()
 
@@ -314,3 +325,52 @@ class DonationsListWidget(BaseListWidget):
             self.edit_volunteer_info.setText(f"Endereço: {address}, Telefone: {phone}")
         else:
             self.edit_volunteer_info.clear()
+
+    def initDetailsUI(self):
+        self.details_widget = QWidget()
+        details_layout = QVBoxLayout()
+        self.details_form = QFormLayout()
+
+        self.details_volunteer = QLineEdit(); self.details_volunteer.setReadOnly(True)
+        self.details_form.addRow("Voluntário:", self.details_volunteer)
+
+        self.details_date = QLineEdit(); self.details_date.setReadOnly(True)
+        self.details_form.addRow("Data:", self.details_date)
+
+        self.details_amount = QLineEdit(); self.details_amount.setReadOnly(True)
+        self.details_form.addRow("Valor:", self.details_amount)
+
+        self.details_created_at = QLineEdit(); self.details_created_at.setReadOnly(True)
+        self.details_form.addRow("Criado em:", self.details_created_at)
+
+        details_layout.addLayout(self.details_form)
+        close_button = QPushButton("Fechar")
+        close_button.clicked.connect(lambda: self.stacked_layout.setCurrentWidget(self.table_widget))
+        details_layout.addWidget(close_button)
+
+        self.details_widget.setLayout(details_layout)
+        self.stacked_layout.addWidget(self.details_widget)
+
+    def show_details(self, record_id):
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT donations.id, persons.name, donations.date, donations.amount, donations.created_at
+            FROM donations
+            JOIN volunteers ON donations.volunteer_id = volunteers.id
+            JOIN persons ON volunteers.person_id = persons.id
+            WHERE donations.id = ?
+        ''', (record_id,))
+        record = cursor.fetchone()
+        conn.close()
+
+        if not record:
+            QMessageBox.warning(self, "Erro", "Doação não encontrada.")
+            return
+
+        self.details_volunteer.setText(record[1] if record[1] else "")
+        self.details_date.setText(record[2] if record[2] else "")
+        self.details_amount.setText(str(record[3]) if record[3] is not None else "")
+        self.details_created_at.setText(record[4] if record[4] else "")
+
+        self.stacked_layout.setCurrentWidget(self.details_widget)

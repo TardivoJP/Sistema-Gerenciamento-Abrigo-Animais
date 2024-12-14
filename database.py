@@ -18,35 +18,44 @@ def create_tables():
             vaccinated BOOLEAN,
             neutered BOOLEAN,
             description TEXT,
-            status TEXT DEFAULT 'Disponível'  -- Novo campo com valor padrão 'Disponível'
+            status TEXT DEFAULT 'Disponível',  -- Novo campo com valor padrão 'Disponível'
+            created_at TEXT
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS persons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            address TEXT,
+            phone TEXT,
+            cpf TEXT UNIQUE,
+            birth_date TEXT,
+            isAdopter BOOLEAN DEFAULT 0,
+            isVolunteer BOOLEAN DEFAULT 0,
+            created_at TEXT
         )
     ''')
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS adopters (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            address TEXT,
-            phone TEXT,
-            cpf TEXT,
-            birth_date TEXT,
+            person_id INTEGER,
             occupation TEXT,
-            income REAL
+            income REAL,
+            created_at TEXT
         )
     ''')
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS volunteers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            address TEXT,
-            phone TEXT,
-            cpf TEXT,
-            birth_date TEXT,
+            person_id INTEGER,
             availability TEXT,
             skills TEXT,
             experience TEXT,
-            motivation TEXT
+            motivation TEXT,
+            created_at TEXT
         )
     ''')
 
@@ -57,6 +66,7 @@ def create_tables():
             animal_id INTEGER,
             date TEXT,
             status TEXT,
+            created_at TEXT,
             FOREIGN KEY(adopter_id) REFERENCES adopters(id),
             FOREIGN KEY(animal_id) REFERENCES animals(id)
         )
@@ -68,6 +78,7 @@ def create_tables():
             volunteer_id INTEGER,
             date TEXT,
             amount REAL,
+            created_at TEXT,
             FOREIGN KEY(volunteer_id) REFERENCES volunteers(id)
         )
     ''')

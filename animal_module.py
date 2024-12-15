@@ -20,6 +20,95 @@ class AnimalListWidget(BaseListWidget):
         super().__init__()
         self.order_by_column = "animals.id"
         self.initDetailsUI()
+        self.set_styles()
+
+    def set_styles(self):
+        style = (
+            "QWidget {"
+            "    background-color: #f4f6fb;"
+            "}"
+            "QPushButton {"
+            "    border: 1px solid #f4f6fb;"
+            "    border-radius: 15px;"
+            "    background-color: #fffefe;"
+            "    color: black;"
+            "    padding: 5px 10px;"
+            "    font-size: 14px;"
+            "}"
+            "QPushButton:hover {"
+            "    background-color: #eaeaea;"
+            "}"
+            "QPushButton:disabled {"
+            "    background-color: #d3d3d3;"
+            "    color: #a9a9a9;"
+            "}"
+            "QTableWidget {"
+            "    gridline-color: transparent;"
+            "    background-color: #fffefe;"  # Cor de fundo da tabela
+            "    border: 2px solid #eef1f6;"
+            "    border-bottom-left-radius: 10px;"  # Arredondando a borda inferior esquerda
+            "    border-bottom-right-radius: 10px;"  # Arredondando a borda inferior direita
+            "    border-top-left-radius: 10px;"  # Sem arredondamento no topo esquerdo
+            "    border-top-right-radius: 10px;"  # Sem arredondamento no topo direito
+            "}"
+            "QHeaderView::section {"
+            "    background-color: #f4f6fb;"  # Cor de fundo
+            "    color: #9ba3b2;"  # Cor do texto
+            "    border: none;"
+            "    padding: 8px;"  # Espaçamento interno para evitar cortes
+            "    text-align: left;"
+            "}"
+            "QHeaderView::up-arrow, QHeaderView::down-arrow {"
+            "    width: 12px;"  # Largura do ícone
+            "    height: 12px;"  # Altura do ícone
+            "    margin-left: 5px;"  # Espaçamento entre texto e ícone
+            "    padding: 2px;"  # Evita cortes
+            "}"
+            "QComboBox, QLineEdit {"
+            "    background-color: #fffefe;"  # Cor de fundo dos campos de pesquisa
+            "    border: 1px solid #eef1f6;"  # Borda para os campos
+            "    border-radius: 5px;"  # Bordas arredondadas
+            "    padding: 5px;"  # Espaçamento interno
+            "    font-size: 14px;"  # Tamanho da fonte
+            "}"
+            "QComboBox:hover, QLineEdit:hover {"
+            "    background-color: #d3d3d3;"  # Cor de fundo ao passar o mouse
+            "}"
+                    # Customizando a barra de rolagem
+        "QScrollBar:horizontal {"
+        "    border: none;"  # Remove a borda
+        "    background: #f0f0f0;"  # Cor de fundo da barra horizontal
+        "    height: 8px;"  # Altura da barra de rolagem horizontal
+        "    margin: 0px 21px 0 21px;"  # Distância do conteúdo
+        "}"
+        "QScrollBar:vertical {"
+        "    border: none;"  # Remove a borda
+        "    background: #f0f0f0;"  # Cor de fundo da barra vertical
+        "    width: 8px;"  # Largura da barra de rolagem vertical
+        "    margin: 21px 0 21px 0;"  # Distância do conteúdo
+        "}"
+        "QScrollBar::handle:horizontal, QScrollBar::handle:vertical {"
+        "    background: #c0c0c0;"  # Cor do 'thumb' (parte que se arrasta)
+        "    border-radius: 4px;"  # Bordas arredondadas
+        "}"
+        "QScrollBar::handle:horizontal:hover, QScrollBar::handle:vertical:hover {"
+        "    background: #a0a0a0;"  # Cor do 'thumb' ao passar o mouse
+        "}"
+        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal, "
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+        "    background: none;"  # Remove os botões de seta da barra de rolagem
+        "}"
+        "QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical, "
+        "QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {"
+        "    background: none;"  # Remove os botões de seta
+        "}"
+        )
+
+
+
+        self.setStyleSheet(style)
+
+
 
     def get_title(self):
         return "Lista de Animais"

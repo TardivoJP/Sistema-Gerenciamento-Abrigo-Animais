@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QListWidget, QStackedWidget
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 from database import create_tables
 
 from animal_module import AnimalListWidget
@@ -35,9 +36,34 @@ class MainWindow(QMainWindow):
         self.sidebar.addItem("Processos")
         self.sidebar.addItem("  - Adoções")
         self.sidebar.addItem("  - Doações")
-        self.sidebar.currentRowChanged.connect(self.display)
         self.sidebar.addItem("Análise e Insights")
         self.sidebar.addItem("Relatório")
+        self.sidebar.currentRowChanged.connect(self.display)
+
+        # Aplicando estilo com CSS
+        self.sidebar.setStyleSheet(
+            """
+            QListWidget {
+                background: #fefffe;
+                border: 1px solid #dfe4eb;
+                border-radius: 8px;  /* Arredonda as bordas do menu */
+            }
+            QListWidget::item {
+                background: #fefffe;
+                border: 1px solid #fefffe;
+                padding: 10px;
+                color: #000000;  /* Define o texto preto para itens não selecionados */
+            }
+            QListWidget::item:selected {
+                background: #eff5fe;
+                border: 1px solid #dfe4eb;
+                border-radius: 8px;  /* Arredonda as bordas do item selecionado */
+                color: #000000;  /* Mantém o texto preto para o item selecionado */
+            }
+            """
+        )
+
+
 
         # Area principal de conteudo
         self.stack = QStackedWidget()

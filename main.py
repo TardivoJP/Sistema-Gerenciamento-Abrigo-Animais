@@ -41,6 +41,11 @@ class MainWindow(QMainWindow):
         self.sidebar.addItem(QListWidgetItem(QIcon("icons/analytics_icon.png"), "Análise e Insights"))
         self.sidebar.addItem(QListWidgetItem(QIcon("icons/report_icon.png"), "Relatório"))
         self.sidebar.currentRowChanged.connect(self.display)
+        
+        # Ajustando tamanho fixo para a barra lateral
+        self.sidebar.setMaximumWidth(250)  # Define a largura máxima (250 pixels)
+        self.sidebar.setMinimumWidth(200)  # Define a largura mínima (200 pixels)
+
 
         # Aplicando estilo com CSS
         self.sidebar.setStyleSheet(
@@ -89,8 +94,8 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.reports_widget)      # Index 7
 
         # Ajustando tamanho dos elementos
-        main_layout.addWidget(self.sidebar, 3)  # Barra lateral = 3 unidades de espaco
-        main_layout.addWidget(self.stack, 2)    # Area principal = 2 unidades de espaco
+        main_layout.addWidget(self.sidebar)
+        main_layout.addWidget(self.stack)
 
         # Set the main layout
         container = QWidget()

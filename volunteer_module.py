@@ -156,17 +156,32 @@ class VolunteerListWidget(BaseListWidget):
     def add_actions_to_row(self, row_idx, row_data):
         volunteer_id = row_data[0]
 
+        # Botão de Detalhes
         details_button = QPushButton("Detalhes")
         details_button.clicked.connect(lambda checked, vid=volunteer_id: self.show_details(vid))
         self.table.setCellWidget(row_idx, 5, details_button)
 
+        # Botão de Editar
         edit_button = QPushButton("Editar")
         edit_button.clicked.connect(lambda checked, vid=volunteer_id: self.edit_record(vid))
         self.table.setCellWidget(row_idx, 6, edit_button)
 
+        # Botão de Deletar
         delete_button = QPushButton("Deletar")
         delete_button.clicked.connect(lambda checked, vid=volunteer_id: self.delete_action(vid))
         self.table.setCellWidget(row_idx, 7, delete_button)
+
+        # Verificar se o voluntário possui doações associadas
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM donations WHERE volunteer_id = ?', (volunteer_id,))
+        donation_count = cursor.fetchone()[0]
+        conn.close()
+
+        # Desabilitar botão de deletar se houver doações
+        if donation_count > 0:
+            delete_button.setEnabled(False)
+
 
     def delete_action(self, record_id):
         reply = QMessageBox.question(

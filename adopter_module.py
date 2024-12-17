@@ -168,6 +168,18 @@ class AdopterListWidget(BaseListWidget):
         delete_button.clicked.connect(lambda checked, aid=adopter_id: self.delete_action(aid))
         self.table.setCellWidget(row_idx, 7, delete_button)
 
+        # Verificar se o adotante possui adoções associadas
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM adoptions WHERE adopter_id = ?', (adopter_id,))
+        count = cursor.fetchone()[0]
+        conn.close()
+
+        # Se houver adoções associadas, desabilita o botão Deletar
+        if count > 0:
+            delete_button.setEnabled(False)
+
+
     def delete_action(self, record_id):
         reply = QMessageBox.question(
             self, 'Confirmação', 'Tem certeza que deseja deletar este adotante?',

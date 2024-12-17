@@ -230,7 +230,6 @@ class AnimalListWidget(BaseListWidget):
         self.table.setCellWidget(row_idx, 10, delete_button)
 
         if animal_status == 'Adotado':
-            edit_button.setEnabled(False)
             delete_button.setEnabled(False)
 
     def delete_action(self, record_id):

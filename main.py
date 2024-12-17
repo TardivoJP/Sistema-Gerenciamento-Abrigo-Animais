@@ -1,10 +1,10 @@
 import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel,
-    QHBoxLayout, QListWidget, QStackedWidget
+    QHBoxLayout, QVBoxLayout, QListWidget, QStackedWidget, QListWidgetItem
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QPixmap, QIcon
 from database import create_tables
 
 from animal_module import AnimalListWidget
@@ -15,11 +15,13 @@ from donation_module import DonationsListWidget
 from analytics_module import AnalyticsWidget
 from report_module import ReportWidget
 
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Sistema de Gestão da ONG de Abrigo de Animais")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 900, 600)
         self.initUI()
 
     def initUI(self):
@@ -28,16 +30,16 @@ class MainWindow(QMainWindow):
 
         # Barra lateral
         self.sidebar = QListWidget()
-        self.sidebar.addItem("Home")
-        self.sidebar.addItem("Cadastros")
+        self.sidebar.addItem(QListWidgetItem(QIcon("icons/home_icon.png"), "Home"))
+        self.sidebar.addItem(QListWidgetItem(QIcon("icons/animal_icon.png"), "Cadastros"))
         self.sidebar.addItem("  - Animais")
         self.sidebar.addItem("  - Adotantes")
         self.sidebar.addItem("  - Voluntários")
-        self.sidebar.addItem("Processos")
+        self.sidebar.addItem(QListWidgetItem(QIcon("icons/adoption_icon.png"), "Processos"))
         self.sidebar.addItem("  - Adoções")
         self.sidebar.addItem("  - Doações")
-        self.sidebar.addItem("Análise e Insights")
-        self.sidebar.addItem("Relatório")
+        self.sidebar.addItem(QListWidgetItem(QIcon("icons/analytics_icon.png"), "Análise e Insights"))
+        self.sidebar.addItem(QListWidgetItem(QIcon("icons/report_icon.png"), "Relatório"))
         self.sidebar.currentRowChanged.connect(self.display)
 
         # Aplicando estilo com CSS
@@ -46,29 +48,26 @@ class MainWindow(QMainWindow):
             QListWidget {
                 background: #fefffe;
                 border: 1px solid #dfe4eb;
-                border-radius: 8px;  /* Arredonda as bordas do menu */
+                border-radius: 8px;
             }
             QListWidget::item {
                 background: #fefffe;
                 border: 1px solid #fefffe;
                 padding: 10px;
-                color: #000000;  /* Define o texto preto para itens não selecionados */
+                color: #000000;
             }
             QListWidget::item:selected {
                 background: #eff5fe;
                 border: 1px solid #dfe4eb;
-                border-radius: 8px;  /* Arredonda as bordas do item selecionado */
-                color: #000000;  /* Mantém o texto preto para o item selecionado */
+                border-radius: 8px;
+                color: #000000;
             }
             """
         )
 
-
-
         # Area principal de conteudo
         self.stack = QStackedWidget()
-        self.home_widget = QLabel("Bem-vindo ao Sistema de Gestão da ONG de Abrigo de Animais.")
-        self.home_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setup_home_widget()
 
         # Widgets dos modulos
         self.animals_widget = AnimalListWidget()
@@ -80,7 +79,7 @@ class MainWindow(QMainWindow):
         self.reports_widget = ReportWidget()
 
         # Widgets em pilha
-        self.stack.addWidget(self.home_widget)         # Index 0
+        self.stack.addWidget(self.home_container)      # Index 0
         self.stack.addWidget(self.animals_widget)      # Index 1
         self.stack.addWidget(self.adopters_widget)     # Index 2
         self.stack.addWidget(self.volunteers_widget)   # Index 3
@@ -90,17 +89,50 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.reports_widget)      # Index 7
 
         # Ajustando tamanho dos elementos
-        main_layout.addWidget(self.sidebar, 1)  # Barra lateral =  1 unidade de espaco
-        main_layout.addWidget(self.stack, 4)    # Area principal =  4 unidades de espaco
+        main_layout.addWidget(self.sidebar, 3)  # Barra lateral = 3 unidades de espaco
+        main_layout.addWidget(self.stack, 2)    # Area principal = 2 unidades de espaco
 
         # Set the main layout
         container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
 
+    def setup_home_widget(self):
+        # Texto de boas-vindas
+        self.home_widget = QLabel()
+        self.home_widget.setText("""
+            <h1 style="color: #2b7a78; text-align: center;">Bem-vindo ao Sistema de Gestão da ONG de Abrigo de Animais</h1>
+            <p style="font-size: 16px; text-align: center; color: #555555;">
+                Utilize o menu lateral para navegar entre as funcionalidades do sistema.
+            </p>
+        """)
+        self.home_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # Logotipo
+        logo_label = QLabel()
+        logo_pixmap = QPixmap("icons/logo amar.png")  # Substitua pelo caminho do arquivo de imagem
+        logo_pixmap = logo_pixmap.scaled(300, 300, Qt.AspectRatioMode.KeepAspectRatio)
+        logo_label.setPixmap(logo_pixmap)
+        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Informações rápidas
+        #info_layout = QVBoxLayout()
+        #info_label = QLabel("<b>Total de Adoções Realizadas:</b> ")
+        #info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        #info_layout.addWidget(info_label)
+
+        # Layout principal da home
+        home_layout = QVBoxLayout()
+        home_layout.addWidget(logo_label)
+        home_layout.addWidget(self.home_widget)
+        #home_layout.addLayout(info_layout)
+
+        self.home_container = QWidget()
+        self.home_container.setLayout(home_layout)
+
     def display(self, index):
         if index == 0:
-            self.stack.setCurrentWidget(self.home_widget)
+            self.stack.setCurrentWidget(self.home_container)
         elif index == 2:
             self.stack.setCurrentWidget(self.animals_widget)
             self.animals_widget.load_data()
@@ -122,6 +154,7 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentWidget(self.reports_widget)
         else:
             pass
+
 
 if __name__ == '__main__':
     create_tables()  # Garante que o banco de dados esteja configurado

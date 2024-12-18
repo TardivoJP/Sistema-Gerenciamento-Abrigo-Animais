@@ -1,3 +1,4 @@
+import os
 import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel,
@@ -15,12 +16,17 @@ from donation_module import DonationsListWidget
 from analytics_module import AnalyticsWidget
 from report_module import ReportWidget
 
-
+def resource_path(relative_path):
+    """Retorna o caminho absoluto para recursos, mesmo no executável."""
+    if hasattr(sys, '_MEIPASS'):  # Atributo adicionado pelo PyInstaller
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Sistema de Gestão da ONG de Abrigo de Animais")
+        self.setWindowIcon(QIcon(resource_path("icons/logo_amar.ico")))  # Define o ícone da janela e da barra de tarefas
         self.setGeometry(100, 100, 900, 600)
         self.initUI()
 
@@ -115,7 +121,7 @@ class MainWindow(QMainWindow):
         
         # Logotipo
         logo_label = QLabel()
-        logo_pixmap = QPixmap("icons/logo amar.png")  # Substitua pelo caminho do arquivo de imagem
+        logo_pixmap = QPixmap(resource_path("icons/logo_amar.png"))  # Substitua pelo caminho do arquivo de imagem
         logo_pixmap = logo_pixmap.scaled(300, 300, Qt.AspectRatioMode.KeepAspectRatio)
         logo_label.setPixmap(logo_pixmap)
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -164,6 +170,7 @@ class MainWindow(QMainWindow):
 if __name__ == '__main__':
     create_tables()  # Garante que o banco de dados esteja configurado
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon("icons/logo_amar.ico"))  # Define o ícone para a barra de tarefas
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

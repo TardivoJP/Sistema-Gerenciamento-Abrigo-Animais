@@ -5,3 +5,13 @@ __pycache__/
 
 # Virtual environment
 venv/
+
+# PyInstaller output folders
+dist/
+build/
+
+# PyInstaller spec file
+main.spec
+
+# PDF reports
+relatorio.pdf
